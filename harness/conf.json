@@ -1,0 +1,10 @@
+{
+  "databaseConfig": {
+    "databaseDriver": "postgres",
+    "datasourceName": "postgres://postgres:postgres@localhost/harness?sslmode=disable"
+  },
+  "loggerConfig" : {
+    "level" : 999,
+    "tags" : []
+  }
+}
