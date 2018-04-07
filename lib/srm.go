@@ -7,6 +7,8 @@ import (
 	"sync"
 	"strings"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
+	"bytes"
+	"log"
 )
 
 type Trx struct {
@@ -52,164 +54,16 @@ func (o *Trx) Query(template interface{}, conditions string, args ...interface{}
 	if !ok {
 		stmt = o.createStmt(sql)
 	}
-	buffer := o.buildBuffer(objectType)
+	buffer := o.buildReadBufferForType(objectType)
 	r, err := stmt.Query(args...)
 	tkt.CheckErr(err)
 	arr := reflect.MakeSlice(reflect.SliceOf(objectType), 0, 0)
 	for r.Next() {
 		tkt.CheckErr(r.Scan(buffer...))
-		object, _ := o.readBuffer(buffer, objectType, 0)
-		arr = reflect.Append(arr, object)
+		object, _ := o.readBufferForType(buffer, objectType, 0)
+		arr = reflect.Append(arr, *object)
 	}
 	return arr.Interface()
-}
-
-func (o *Trx) createStmt(sql string) *sql.Stmt {
-	o.mux.Lock()
-	defer o.mux.Unlock()
-	stmt, err := o.tx.Prepare(sql)
-	tkt.CheckErr(err)
-	o.stmtMap[sql] = stmt
-	return stmt
-}
-
-func (o *Trx) checkMaps() {
-	if o.stmtMap == nil {
-		o.mux.Lock()
-		defer o.mux.Unlock()
-		o.stmtMap = make(map[string]*sql.Stmt)
-		o.queryMap = make(map[string]string)
-		o.insertMap = make(map[string]string)
-		o.deleteMap = make(map[string]string)
-		o.updateMap = make(map[string]string)
-	}
-}
-
-func (o *Trx) readBuffer(buffer []interface{}, objectType reflect.Type, offset int) (reflect.Value, int) {
-	object := reflect.New(objectType).Elem()
-	mtos := make([]reflect.Value, 0)
-	var i int
-	vi := offset
-	for i = 0; i < object.NumField(); i++ {
-		of := object.Field(i)
-		if of.Type().Kind() == reflect.Struct {
-			mtos = append(mtos, of)
-		} else {
-			v := buffer[vi]
-			of.Set(reflect.ValueOf(v).Elem())
-			vi++
-		}
-	}
-	for j := range mtos {
-		mto := mtos[j]
-		var child interface{}
-		child, vi = o.readBuffer(buffer, mto.Type(), vi)
-		mto.Set(child.(reflect.Value))
-	}
-	return object, vi
-}
-
-func (o *Trx) buildBuffer(objectType reflect.Type) []interface{} {
-	buffer := make([]interface{}, 0)
-	mtos := make([]reflect.StructField, 0)
-	for i := 0; i < objectType.NumField(); i++ {
-		field := objectType.Field(i)
-		if field.Type.Kind() == reflect.Struct {
-			mtos = append(mtos, field)
-		} else {
-			buffer = append(buffer, reflect.New(field.Type).Interface())
-		}
-	}
-	for i := range mtos {
-		mto := mtos[i]
-		mtoType := mto.Type
-		buffer = append(buffer, o.buildBuffer(mtoType)...)
-	}
-	return buffer
-}
-
-func (o *Trx) buildQuerySql(objectType reflect.Type) string {
-	o.mux.Lock()
-	defer o.mux.Unlock()
-	fields := make([]reflect.StructField, 0)
-	mtos := make([]reflect.StructField, 0)
-	for i := 0; i < objectType.NumField(); i++ {
-		field := objectType.Field(i)
-		if field.Type.Kind() == reflect.Struct {
-			mtos = append(mtos, field)
-		} else {
-			fields = append(fields, field)
-		}
-	}
-	sql := "select " + o.buildFieldsSelect(fields, "o")
-	s := o.buildMtoSelects(mtos, "o")
-	sql += s
-	sql += " from " + objectType.Name() + " o"
-	s = o.buildMtoJoins(mtos, "o")
-	sql += s
-	o.queryMap[objectType.Name()] = sql
-	return sql
-}
-
-func (o *Trx) buildMtoSelects(mtos []reflect.StructField, path string) string {
-	sql := ""
-	for i := range mtos {
-		mto := mtos[i]
-		mtoType := mto.Type
-		childMtos := make([]reflect.StructField, 0)
-		childPath := path + "_" + mto.Name
-		for j := 0; j < mtoType.NumField(); j++ {
-			field := mtoType.Field(j)
-			if field.Type.Kind() == reflect.Struct {
-				childMtos = append(childMtos, field)
-			} else {
-				sql += ", "
-				sql += fmt.Sprintf("%s.%s", childPath, field.Name)
-			}
-		}
-		s := o.buildMtoSelects(childMtos, childPath)
-		sql += s
-	}
-	return sql
-}
-
-func (o *Trx) buildMtoJoins(mtos []reflect.StructField, path string) string {
-	sql := ""
-	for i := range mtos {
-		mto := mtos[i]
-		mtoType := mto.Type
-		childPath := path + "_" + mto.Name
-		sql += fmt.Sprintf(" join %s %s on %s.id = %s.%s_id", mto.Name, childPath, childPath, path, mto.Name)
-		childMtos := make([]reflect.StructField, 0)
-		for j := 0; j < mtoType.NumField(); j++ {
-			field := mtoType.Field(j)
-			if field.Type.Kind() == reflect.Struct {
-				childMtos = append(childMtos, field)
-			}
-		}
-		if len(childMtos) > 0 {
-			var s string
-			s = o.buildMtoJoins(childMtos, childPath)
-			sql += s
-		}
-	}
-	return sql
-}
-
-func (o *Trx) buildFieldsSelect(fields []reflect.StructField, path string) string {
-	s := ""
-	for i := range fields {
-		if i > 0 {
-			s += ", "
-		}
-		field := fields[i]
-		s += fmt.Sprintf("%s.%s", path, field.Name)
-	}
-	return s
-}
-
-func (o *Trx) QueryMutliple(templates []interface{}, conditions string, args ...interface{}) [][]interface{} {
-	return nil
 }
 
 func (o *Trx) Find(template interface{}, id int64) interface{} {
@@ -218,14 +72,8 @@ func (o *Trx) Find(template interface{}, id int64) interface{} {
 	if value.Len() == 0 {
 		return nil
 	} else {
-		//dpv := reflect.ValueOf(result)
-		//dv := reflect.Indirect(dpv)
 		v := value.Index(0)
 		return reflect.Indirect(v).Addr().Interface()
-		/**
-		dv.Set(v)
-		return true
-		**/
 	}
 }
 
@@ -257,6 +105,48 @@ func (o *Trx) Persist(entity interface{}) {
 	tkt.CheckErr(err)
 }
 
+func (o *Trx) Update(entity interface{}) {
+	o.checkMaps()
+	object := reflect.Indirect(reflect.ValueOf(entity).Elem())
+	objectType := object.Type()
+	sql, ok := o.updateMap[objectType.Name()]
+	if !ok {
+		sql = o.buildUpdateSql(objectType)
+	}
+	stmt, ok := o.stmtMap[sql]
+	if !ok {
+		stmt = o.createStmt(sql)
+	}
+	buffer := make([]interface{}, object.NumField())
+	for i := 0; i < object.NumField(); i++ {
+		of := object.Field(i)
+		if of.Type().Kind() == reflect.Struct {
+			buffer[i] = of.Elem().FieldByName("Id").Interface()
+		} else {
+			buffer[i] = of.Interface()
+		}
+	}
+	_, err := stmt.Exec(buffer...)
+	tkt.CheckErr(err)
+}
+
+func (o *Trx) Delete(entity interface{}) {
+	o.checkMaps()
+	object := reflect.Indirect(reflect.ValueOf(entity).Elem())
+	objectType := object.Type()
+	sql, ok := o.deleteMap[objectType.Name()]
+	if !ok {
+		sql = o.buildDeleteSql(objectType)
+	}
+	stmt, ok := o.stmtMap[sql]
+	if !ok {
+		stmt = o.createStmt(sql)
+	}
+	of := object.Field(0)
+	_, err := stmt.Exec(of.Interface())
+	tkt.CheckErr(err)
+}
+
 func (o *Trx) buildInsertSql(objectType reflect.Type) string {
 	o.mux.Lock()
 	defer o.mux.Unlock()
@@ -277,19 +167,41 @@ func (o *Trx) buildInsertSql(objectType reflect.Type) string {
 		if i > 0 {
 			sql += ", "
 		}
-		sql += fmt.Sprintf("$%d", i + 1)
+		sql += fmt.Sprintf("$%d", i+1)
 	}
 	sql += `)`
 	o.insertMap[objectType.Name()] = sql
 	return sql
 }
 
-func (o *Trx) Update(entity interface{}) {
-
+func (o *Trx) buildUpdateSql(objectType reflect.Type) string {
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	sql := `update ` + strings.ToLower(objectType.Name())
+	for i := 1; i < objectType.NumField(); i++ {
+		field := objectType.Field(i)
+		if i > 0 {
+			sql += ","
+		}
+		sql += " set"
+		if field.Type.Kind() == reflect.Struct {
+			sql += field.Name + "_id"
+		} else {
+			sql += field.Name
+		}
+		sql += fmt.Sprintf(" = $%d", i+1)
+	}
+	sql += ` where id == $1`
+	o.updateMap[objectType.Name()] = sql
+	return sql
 }
 
-func (o *Trx) Delete(entity interface{}) {
-
+func (o *Trx) buildDeleteSql(objectType reflect.Type) string {
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	sql := `delete from ` + objectType.Name() + ` where id = $1`
+	o.updateMap[objectType.Name()] = sql
+	return sql
 }
 
 func (o *Trx) RollbackOnPanic() {
@@ -307,11 +219,338 @@ func (o *Trx) Init(db *sql.DB, tx *sql.Tx, sequences *tkt.Sequences) {
 	o.mux = sync.Mutex{}
 }
 
-type Orm struct {
+func (o *Trx) QueryMulti(templates []interface{}, joins *Joins, conditions string, args ...interface{}) [][]interface{} {
+	o.checkMaps()
+	key := o.buildStmtKeyForMultiple(templates, joins, conditions)
+	var stmt *sql.Stmt
+	stmt, ok := o.stmtMap[key]
+	if !ok {
+		stmt = o.buildStmtForMultiple(key, templates, joins, conditions)
+	}
+
+	r, err := stmt.Query(args...)
+	tkt.CheckErr(err)
+
+	objectTypes := make([]reflect.Type, 0)
+	for i := range templates {
+		objectTypes = append(objectTypes, reflect.TypeOf(templates[i]))
+	}
+
+	buffer := make([]interface{}, 0)
+	for i := range templates {
+		objectType := reflect.TypeOf(templates[i])
+		buffer = append(buffer, o.buildReadBufferForType(objectType)...)
+	}
+
+	arr := make([][]interface{}, 0)
+	for r.Next() {
+		tkt.CheckErr(r.Scan(buffer...))
+		objects := make([]interface{}, len(templates))
+		offset := 0
+		for i := range templates {
+			objectType := objectTypes[i]
+			object, n := o.readBufferForType(buffer, objectType, offset)
+			if object == nil {
+				objects[i] = reflect.New(reflect.PtrTo(objectType)).Elem().Interface()
+			} else {
+				objects[i] = object.Addr().Interface()
+			}
+			offset += n
+		}
+		arr = append(arr, objects)
+	}
+	return arr
+}
+
+func (o *Trx) buildStmtForMultiple(key string, templates []interface{}, joins *Joins, conditions string) *sql.Stmt {
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	sql := o.buildSqlForMultiple(templates, joins, conditions)
+	log.Println(sql)
+	stmt, err := o.tx.Prepare(sql)
+	tkt.CheckErr(err)
+	o.stmtMap[key] = stmt
+	return stmt
+}
+
+func (o *Trx) buildStmtKeyForMultiple(templates []interface{}, joins *Joins, conditions string) string {
+	buffer := bytes.Buffer{}
+	for i := range templates {
+		buffer.WriteString(".")
+		buffer.WriteString(reflect.TypeOf(templates[i]).Name())
+	}
+	buffer.WriteString(";")
+	for i := 0; i < joins.Size(); i++ {
+		buffer.WriteString(joins.Join(i))
+		buffer.WriteString(" ")
+		buffer.WriteString(joins.On(i))
+	}
+	buffer.WriteString(";")
+	buffer.WriteString(conditions)
+	return buffer.String()
+}
+
+func (o *Trx)buildSqlForMultiple(templates []interface{}, joins *Joins, conditions string) string {
+	sql := "select "
+	for i := range templates {
+		template := templates[i]
+		if i > 0 {
+			sql += ",\r\n"
+		}
+		alias := fmt.Sprintf("o%d", i+1)
+		sql += o.buildSelectFieldsForTemplate(template, alias)
+	}
+	sql += "\r\nfrom " + reflect.TypeOf(templates[0]).Name() + " o1"
+	sql += "\r\n" + o.buildFromMtoSqlForTemplate(templates[0], "o1")
+	sql += o.buildJoinSqlForTemplates(templates, joins)
+	sql += "\r\n" + conditions
+	return sql
+}
+
+func (o *Trx) buildFromMtoSqlForTemplates(templates []interface{}, offset int) string {
+	sql := ""
+	for i := offset; i < len(templates); i++ {
+		joinSql := o.buildFromMtoSqlForTemplate(templates[i], fmt.Sprintf("o%d", i+1))
+		if len(joinSql) > 0 {
+			if i > 0 {
+				sql += "\r\n"
+			} else {
+				sql += " "
+			}
+			sql += joinSql
+		}
+	}
+	return sql
+}
+
+func (o *Trx) buildFromMtoSqlForTemplate(template interface{}, path string) string {
+	sql := ""
+	objectType := reflect.TypeOf(template)
+	mtos := o.buildMtoList(objectType)
+	if len(mtos) > 0 {
+		sql += o.buildMtoJoins(mtos, path)
+	}
+	return sql
+}
+
+func (o *Trx) buildJoinSqlForTemplates(templates []interface{}, joins *Joins) string {
+	sql := ""
+	for i := 0; i < joins.Size(); i++ {
+		template := templates[i+1]
+		objectType := reflect.TypeOf(template)
+		alias := fmt.Sprintf("o%d", i+2)
+		sql += "\r\n" + joins.Join(i)
+		mtos := o.buildMtoList(objectType)
+		if len(mtos) > 0 {
+			sql += " ("
+		} else {
+			sql += " "
+		}
+		sql += objectType.Name() + " " + alias
+		if len(mtos) > 0 {
+			sql += o.buildMtoJoins(mtos, alias) + ")"
+		}
+		sql += " on " + joins.On(i)
+	}
+	return sql
+}
+
+func (o *Trx) buildMtoList(objectType reflect.Type) []reflect.StructField {
+	mtos := make([]reflect.StructField, 0)
+	for i := 0; i < objectType.NumField(); i++ {
+		field := objectType.Field(i)
+		if field.Type.Kind() == reflect.Struct {
+			mtos = append(mtos, field)
+		}
+	}
+	return mtos
+}
+
+func (o *Trx) buildSelectFieldsForTemplate(template interface{}, path string) string {
+	objectType := reflect.TypeOf(template)
+	fields := make([]reflect.StructField, 0)
+	mtos := make([]reflect.StructField, 0)
+	for i := 0; i < objectType.NumField(); i++ {
+		field := objectType.Field(i)
+		if field.Type.Kind() == reflect.Struct {
+			mtos = append(mtos, field)
+		} else {
+			fields = append(fields, field)
+		}
+	}
+	sql := o.buildFieldsSelect(fields, path)
+	sql += o.buildMtoFieldsSelect(mtos, path)
+	return sql
+}
+
+func (o *Trx) createStmt(sql string) *sql.Stmt {
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	stmt, err := o.tx.Prepare(sql)
+	tkt.CheckErr(err)
+	o.stmtMap[sql] = stmt
+	return stmt
+}
+
+func (o *Trx) checkMaps() {
+	if o.stmtMap == nil {
+		o.mux.Lock()
+		defer o.mux.Unlock()
+		o.stmtMap = make(map[string]*sql.Stmt)
+		o.queryMap = make(map[string]string)
+		o.insertMap = make(map[string]string)
+		o.deleteMap = make(map[string]string)
+		o.updateMap = make(map[string]string)
+	}
+}
+
+func (o *Trx) readBufferForType(buffer []interface{}, objectType reflect.Type, offset int) (*reflect.Value, int) {
+
+	ppId := buffer[offset].(**int64)
+	pId := *ppId
+	if pId == nil {
+		return nil, objectType.NumField()
+	}
+	objectValue := reflect.New(objectType).Elem()
+	idField := objectValue.Field(0)
+	idField.Set(reflect.ValueOf(*pId))
+	mtos := make([]reflect.Value, 0)
+	var i int
+	vi := offset + 1
+	for i = 1; i < objectValue.NumField(); i++ {
+		of := objectValue.Field(i)
+		if of.Type().Kind() == reflect.Struct {
+			mtos = append(mtos, of)
+		} else {
+			v := buffer[vi].(*interface{})
+			of.Set(reflect.ValueOf(*v))
+			vi++
+		}
+	}
+	for j := range mtos {
+		mto := mtos[j]
+		var child interface{}
+		child, vi = o.readBufferForType(buffer, mto.Type(), vi)
+		mto.Set(*child.(*reflect.Value))
+	}
+	return &objectValue, vi
+}
+
+func (o *Trx) buildReadBufferForType(objectType reflect.Type) []interface{} {
+	buffer := o.buildStaticFieldBuffer(objectType)
+	mtos := o.buildMtoList(objectType)
+	for i := range mtos {
+		mto := mtos[i]
+		mtoType := mto.Type
+		buffer = append(buffer, o.buildReadBufferForType(mtoType)...)
+	}
+	return buffer
+}
+
+func (o *Trx) buildStaticFieldBuffer(objectType reflect.Type) []interface{} {
+	buffer := make([]interface{}, 0)
+	var id *int64
+	buffer = append(buffer, &id)
+	for i := 1; i < objectType.NumField(); i++ {
+		field := objectType.Field(i)
+		if field.Type.Kind() != reflect.Struct {
+			i := reflect.New(field.Type).Interface()
+			buffer = append(buffer, &i)
+		}
+	}
+	return buffer
+}
+
+func (o *Trx) buildQuerySql(objectType reflect.Type) string {
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	fields := make([]reflect.StructField, 0)
+	mtos := make([]reflect.StructField, 0)
+	for i := 0; i < objectType.NumField(); i++ {
+		field := objectType.Field(i)
+		if field.Type.Kind() == reflect.Struct {
+			mtos = append(mtos, field)
+		} else {
+			fields = append(fields, field)
+		}
+	}
+	sql := "select " + o.buildFieldsSelect(fields, "o")
+	s := o.buildMtoFieldsSelect(mtos, "o")
+	sql += s
+	sql += " from " + objectType.Name() + " o"
+	s = o.buildMtoJoins(mtos, "o")
+	sql += s
+	o.queryMap[objectType.Name()] = sql
+	return sql
+}
+
+func (o *Trx) buildMtoFieldsSelect(mtos []reflect.StructField, path string) string {
+	sql := ""
+	for i := range mtos {
+		mto := mtos[i]
+		mtoType := mto.Type
+		childMtos := make([]reflect.StructField, 0)
+		childPath := path + "_" + mto.Name
+		for j := 0; j < mtoType.NumField(); j++ {
+			field := mtoType.Field(j)
+			if field.Type.Kind() == reflect.Struct {
+				childMtos = append(childMtos, field)
+			} else {
+				sql += ", "
+				sql += fmt.Sprintf("%s.%s", childPath, field.Name)
+			}
+		}
+		s := o.buildMtoFieldsSelect(childMtos, childPath)
+		sql += s
+	}
+	return sql
+}
+
+func (o *Trx) buildMtoJoins(mtos []reflect.StructField, path string) string {
+	sql := ""
+	for i := range mtos {
+		mto := mtos[i]
+		mtoType := mto.Type
+		childPath := path + "_" + mto.Name
+		if i > 0 {
+			sql += "\r\n"
+		} else {
+			sql += " "
+		}
+		sql += fmt.Sprintf("join %s %s on %s.id = %s.%s_id", mto.Name, childPath, childPath, path, mto.Name)
+		childMtos := make([]reflect.StructField, 0)
+		for j := 0; j < mtoType.NumField(); j++ {
+			field := mtoType.Field(j)
+			if field.Type.Kind() == reflect.Struct {
+				childMtos = append(childMtos, field)
+			}
+		}
+		if len(childMtos) > 0 {
+			var s string
+			s = o.buildMtoJoins(childMtos, childPath)
+			sql += s
+		}
+	}
+	return sql
+}
+
+func (o *Trx) buildFieldsSelect(fields []reflect.StructField, path string) string {
+	s := ""
+	for i := range fields {
+		if i > 0 {
+			s += ", "
+		}
+		field := fields[i]
+		s += fmt.Sprintf("%s.%s", path, field.Name)
+	}
+	return s
+}
+
+type Mgr struct {
 	DatabaseConfig tkt.DatabaseConfig
 }
 
-func (o *Orm) StartTransaction() *Trx {
+func (o *Mgr) StartTransaction() *Trx {
 	transaction := Trx{}
 	db := tkt.OpenDB(o.DatabaseConfig)
 	tx, err := db.Begin()

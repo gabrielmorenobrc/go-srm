@@ -80,8 +80,8 @@ func main() {
 	initDB := InitDB{}
 	tkt.ExecuteTransactional(config.DatabaseConfig, &initDB)
 
-	srm := srm.Orm{DatabaseConfig:config.DatabaseConfig}
-	tx := srm.StartTransaction()
+	mgr := srm.Mgr{DatabaseConfig:config.DatabaseConfig}
+	tx := mgr.StartTransaction()
 	defer tx.RollbackOnPanic()
 
 	r1 := tx.Query(Detail{}, "where o_Master1.Id = $1 and o_Master2.Id = 2", 1).([]Detail)
@@ -106,6 +106,14 @@ func main() {
 	r3 := tx.Query(Master1{}, "").([]Master1)
 	for i := range r3 {
 		log.Printf("master1: %d, %s", r3[i].Id, r3[i].Name)
+	}
+
+	rows := tx.QueryMulti([]interface{}{Detail{}, YetAnother{}}, srm.Loj("o2.detail_id = o1.id"), "")
+	for i := range rows {
+		row := rows[i]
+		d := row[0].(*Detail)
+		ya := row[1].(*YetAnother)
+		log.Printf("%s, %s", d.Name, ya)
 	}
 
 	tx.Commit()
