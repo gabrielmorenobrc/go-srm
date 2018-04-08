@@ -8,34 +8,39 @@ import (
 	"log"
 	"github.com/gabrielmorenobrc/go-srm/lib"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
+	"time"
 )
 
 type Master1 struct {
-	Id int64
+	Id   int64 `schema:"harness"`
 	Name string
 }
 
 type Master2 struct {
-	Id int64
+	Id   int64 `schema:"harness"`
 	Name string
 }
 
 type Detail struct {
-	Id int64
+	Id      int64 `schema:"harness"`
 	Master1 Master1
 	Master2 Master2
-	Name   string
+	Name    string
 }
 
 type YetAnother struct {
-	Id int64
-	Detail Detail
-	Name   string
+	Id        int64     `schema:"harness"`
+	Detail    Detail
+	Name      string
+	Date      time.Time `temporal:"date"`
+	Time      time.Time `temporal:"time"`
+	Timestamp time.Time `temporal:"timestamp"`
+	Money     float64   `precision:"18,2"`
+	Double    float64
 }
 
-
 type Config struct {
-	DatabaseConfig    tkt.DatabaseConfig `json:"databaseConfig"`
+	DatabaseConfig tkt.DatabaseConfig `json:"databaseConfig"`
 }
 
 var Sequences *tkt.Sequences
@@ -66,8 +71,6 @@ var config Config
 
 var conf = flag.String("conf", "conf.json", "Config")
 
-var sequences *tkt.Sequences
-
 func main() {
 
 	tkt.Ping()
@@ -75,37 +78,35 @@ func main() {
 	flag.Parse()
 	loadConfig()
 
-	sequences = tkt.NewSequences(config.DatabaseConfig)
-
 	//initDB := InitDB{}
 	//tkt.ExecuteTransactional(config.DatabaseConfig, &initDB)
 
-	mgr := srm.Mgr{DatabaseConfig:config.DatabaseConfig}
-	mgr.CreateTables([]interface{}{Master1{}, Master2{}, Detail{}, YetAnother{}})
-
+	mgr := srm.Mgr{DatabaseConfig: config.DatabaseConfig}
+//	mgr.CreateTables([]interface{}{Master1{}, Master2{}, Detail{}, YetAnother{}})
 
 	tx := mgr.StartTransaction()
 	defer tx.RollbackOnPanic()
 
 	m1 := Master1{Name: "Master 1"}
 	tx.Persist(&m1)
+	m1 = Master1{Name: "Master 1'"}
+	tx.Persist(&m1)
 	m2 := Master2{Name: "Master 2"}
 	tx.Persist(&m2)
-	d := Detail{Name:"Detail", Master1:m1, Master2:m2}
+	d := Detail{Name: "Detail", Master1: m1, Master2: m2}
 	tx.Persist(&d)
-	ya := YetAnother{Name:"Y A", Detail:d}
+	ya := YetAnother{Name: "Y A", Detail: d}
 	tx.Persist(&ya)
 
 	r1 := tx.Query(Detail{}, "where o_Master1.Id = $1 and o_Master2.Id = 2", 1).([]Detail)
 	for i := range r1 {
-		log.Printf("detail: %s, master: %s", r1[i].Name, r1[i].Master1.Name)
+		println(r1[i].Name, r1[i].Master1.Name)
 	}
 
 	r2 := tx.Query(YetAnother{}, "where o_Detail_Master1.Id = $1", 1).([]YetAnother)
 	for i := range r2 {
-		log.Printf("yet: %s, master: %s", r2[i].Name, r2[i].Detail.Master1.Name)
+		println(r2[i].Name, r2[i].Detail.Master1.Name)
 	}
-
 
 	p1 := tx.Find(Master1{}, 1).(*Master1)
 	if p1 != nil {
@@ -114,7 +115,7 @@ func main() {
 
 	r3 := tx.Query(Master1{}, "").([]Master1)
 	for i := range r3 {
-		log.Printf("master1: %d, %s", r3[i].Id, r3[i].Name)
+		println(r3[i].Id, r3[i].Name)
 	}
 
 	rows := tx.QueryMulti([]interface{}{Master1{}, Detail{}, YetAnother{}},
@@ -125,7 +126,7 @@ func main() {
 		m := row[0].(*Master1)
 		d := row[1].(*Detail)
 		ya := row[2].(*YetAnother)
-		log.Printf("%s, %s, %s", m.Name, d, ya)
+		println(m.Name, d, ya)
 	}
 
 	tx.Commit()
@@ -141,4 +142,3 @@ func loadConfig() {
 	err = json.Unmarshal(bytes, &config)
 	tkt.CheckErr(err)
 }
-

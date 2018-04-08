@@ -41,9 +41,14 @@ func (o *Mgr) createTable(trx *Trx, template interface{}) {
 		return
 	}
 
-
 	buffer := bytes.Buffer{}
 	buffer.WriteString("create table ")
+	idField, _ := objectType.FieldByName("Id")
+	schema, ok := idField.Tag.Lookup("schema")
+	if ok {
+		buffer.WriteString(schema)
+		buffer.WriteString(".")
+	}
 	buffer.WriteString(objectType.Name())
 	buffer.WriteString("(\r\n")
 	for i := 0; i < objectType.NumField(); i++ {
@@ -52,7 +57,11 @@ func (o *Mgr) createTable(trx *Trx, template interface{}) {
 		}
 		f := objectType.Field(i)
 		buffer.WriteString(f.Name)
-		if f.Type.Kind() == reflect.Struct {
+		if f.Type == reflect.TypeOf(time.Now()) {
+			temporal := f.Tag.Get("temporal")
+			buffer.WriteString(" ")
+			buffer.WriteString(temporal)
+		} else if f.Type.Kind() == reflect.Struct {
 			buffer.WriteString("_id bigint")
 		} else if f.Type == reflect.TypeOf(0) {
 			buffer.WriteString(" int")
@@ -61,11 +70,22 @@ func (o *Mgr) createTable(trx *Trx, template interface{}) {
 		} else if f.Type == reflect.TypeOf(0.0) {
 			buffer.WriteString(" float")
 		} else if f.Type == reflect.TypeOf(float64(0.0)) {
-			buffer.WriteString(" double")
-		} else if f.Type == reflect.TypeOf(time.Now()) {
-			buffer.WriteString(" timestamp")
+			precision, ok := f.Tag.Lookup("precision")
+			if ok {
+				buffer.WriteString(" numeric(")
+				buffer.WriteString(precision)
+				buffer.WriteString(")")
+			} else {
+				buffer.WriteString(" double")
+			}
 		} else if f.Type == reflect.TypeOf("") {
-			buffer.WriteString(" varchar(255)")
+			len, ok := f.Tag.Lookup("len")
+			if !ok {
+				len = "255"
+			}
+			buffer.WriteString(" varchar(")
+			buffer.WriteString(len)
+			buffer.WriteString(")")
 		} else if f.Type == reflect.TypeOf(make([]byte, 0)) {
 			buffer.WriteString(" blob")
 		}
@@ -74,11 +94,12 @@ func (o *Mgr) createTable(trx *Trx, template interface{}) {
 	buffer.WriteString(",\r\nprimary key(id)")
 	for i := 0; i < objectType.NumField(); i++ {
 		f := objectType.Field(i)
-		if f.Type.Kind() == reflect.Struct {
+		fieldType := f.Type
+		if IsEntity(fieldType) {
 			buffer.WriteString(",\r\n foreign key(")
 			buffer.WriteString(f.Name)
 			buffer.WriteString("_id) references ")
-			buffer.WriteString(f.Type.Name())
+			buffer.WriteString(FqTableName(f.Type))
 			buffer.WriteString("(id)")
 		}
 	}

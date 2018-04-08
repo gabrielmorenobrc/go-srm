@@ -1,5 +1,12 @@
 package srm
 
+import (
+	"reflect"
+	"time"
+	"math/big"
+	"strings"
+)
+
 type Joins struct {
 	joinList []string
 	onList []string
@@ -49,4 +56,27 @@ func Loj(on string) *Joins {
 func Ij(on string) *Joins {
 	j := Joins{}
 	return j.Ij(on)
+}
+
+var complexTypes = []reflect.Type{reflect.TypeOf(time.Now()), reflect.TypeOf(big.Float{})}
+
+func IsEntity(objectType reflect.Type) bool {
+	kind := objectType.Kind()
+	if kind == reflect.Struct {
+		f, ok := objectType.FieldByName("Id")
+		return ok && f.Type.Kind() == reflect.Int64
+	} else {
+		return false
+	}
+}
+
+func FqTableName(objectType reflect.Type) string {
+	name := strings.ToLower(objectType.Name())
+	idField, _ := objectType.FieldByName("Id")
+	schema, ok := idField.Tag.Lookup("schema")
+	if ok {
+		return schema + "." + name
+	} else {
+		return name
+	}
 }

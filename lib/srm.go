@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"fmt"
 	"sync"
-	"strings"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
 	"bytes"
 )
@@ -88,13 +87,14 @@ func (o *Trx) Persist(entity interface{}) {
 	if !ok {
 		stmt = o.createStmt(sql)
 	}
-	id := o.sequences.Next(strings.ToLower(objectType.Name()))
+	name := FqTableName(objectType)
+	id := o.sequences.Next(name)
 	of := object.Field(0)
 	of.SetInt(id)
 	buffer := make([]interface{}, object.NumField())
 	for i := 0; i < object.NumField(); i++ {
 		of := object.Field(i)
-		if of.Type().Kind() == reflect.Struct {
+		if IsEntity(of.Type()) {
 			buffer[i] = of.FieldByName("Id").Interface()
 		} else {
 			buffer[i] = of.Interface()
@@ -119,7 +119,7 @@ func (o *Trx) Update(entity interface{}) {
 	buffer := make([]interface{}, object.NumField())
 	for i := 0; i < object.NumField(); i++ {
 		of := object.Field(i)
-		if of.Type().Kind() == reflect.Struct {
+		if IsEntity(of.Type()) {
 			buffer[i] = of.Elem().FieldByName("Id").Interface()
 		} else {
 			buffer[i] = of.Interface()
@@ -149,13 +149,14 @@ func (o *Trx) Delete(entity interface{}) {
 func (o *Trx) buildInsertSql(objectType reflect.Type) string {
 	o.mux.Lock()
 	defer o.mux.Unlock()
-	sql := `insert into ` + strings.ToLower(objectType.Name()) + `(`
+	name := FqTableName(objectType)
+	sql := `insert into ` + name + `(`
 	for i := 0; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
 		if i > 0 {
 			sql += ", "
 		}
-		if field.Type.Kind() == reflect.Struct {
+		if IsEntity(field.Type) {
 			sql += field.Name + "_id"
 		} else {
 			sql += field.Name
@@ -176,14 +177,15 @@ func (o *Trx) buildInsertSql(objectType reflect.Type) string {
 func (o *Trx) buildUpdateSql(objectType reflect.Type) string {
 	o.mux.Lock()
 	defer o.mux.Unlock()
-	sql := `update ` + strings.ToLower(objectType.Name())
+	name := FqTableName(objectType)
+	sql := `update ` + name
 	for i := 1; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
 		if i > 0 {
 			sql += ","
 		}
 		sql += " set"
-		if field.Type.Kind() == reflect.Struct {
+		if IsEntity(field.Type) {
 			sql += field.Name + "_id"
 		} else {
 			sql += field.Name
@@ -198,7 +200,8 @@ func (o *Trx) buildUpdateSql(objectType reflect.Type) string {
 func (o *Trx) buildDeleteSql(objectType reflect.Type) string {
 	o.mux.Lock()
 	defer o.mux.Unlock()
-	sql := `delete from ` + objectType.Name() + ` where id = $1`
+	name := FqTableName(objectType)
+	sql := `delete from ` + name + ` where id = $1`
 	o.updateMap[objectType.Name()] = sql
 	return sql
 }
@@ -265,7 +268,7 @@ func (o *Trx) buildStmtForMultiple(key string, templates []interface{}, joins *J
 	o.mux.Lock()
 	defer o.mux.Unlock()
 	sql := o.buildSqlForMultiple(templates, joins, conditions)
-	tkt.Logger("orm").Println(sql)
+	tkt.Logger("srm").Println(sql)
 	stmt, err := o.tx.Prepare(sql)
 	tkt.CheckErr(err)
 	o.stmtMap[key] = stmt
@@ -276,7 +279,8 @@ func (o *Trx) buildStmtKeyForMultiple(templates []interface{}, joins *Joins, con
 	buffer := bytes.Buffer{}
 	for i := range templates {
 		buffer.WriteString(".")
-		buffer.WriteString(reflect.TypeOf(templates[i]).Name())
+		name := FqTableName(reflect.TypeOf(templates[i]))
+		buffer.WriteString(name)
 	}
 	buffer.WriteString(";")
 	for i := 0; i < joins.Size(); i++ {
@@ -299,7 +303,8 @@ func (o *Trx)buildSqlForMultiple(templates []interface{}, joins *Joins, conditio
 		alias := fmt.Sprintf("o%d", i+1)
 		sql += o.buildSelectFieldsForTemplate(template, alias)
 	}
-	sql += "\r\nfrom " + reflect.TypeOf(templates[0]).Name() + " o1"
+	name := FqTableName(reflect.TypeOf(templates[0]))
+	sql += "\r\nfrom " + name + " o1"
 	sql += "\r\n" + o.buildFromMtoSqlForTemplate(templates[0], "o1")
 	sql += o.buildJoinSqlForTemplates(templates, joins)
 	sql += "\r\n" + conditions
@@ -345,7 +350,8 @@ func (o *Trx) buildJoinSqlForTemplates(templates []interface{}, joins *Joins) st
 		} else {
 			sql += " "
 		}
-		sql += objectType.Name() + " " + alias
+		name := FqTableName(objectType)
+		sql += name + " " + alias
 		if len(mtos) > 0 {
 			sql += o.buildMtoJoins(mtos, alias) + ")"
 		}
@@ -358,7 +364,7 @@ func (o *Trx) buildMtoList(objectType reflect.Type) []reflect.StructField {
 	mtos := make([]reflect.StructField, 0)
 	for i := 0; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
-		if field.Type.Kind() == reflect.Struct {
+		if IsEntity(field.Type) {
 			mtos = append(mtos, field)
 		}
 	}
@@ -371,7 +377,7 @@ func (o *Trx) buildSelectFieldsForTemplate(template interface{}, path string) st
 	mtos := make([]reflect.StructField, 0)
 	for i := 0; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
-		if field.Type.Kind() == reflect.Struct {
+		if IsEntity(field.Type) {
 			mtos = append(mtos, field)
 		} else {
 			fields = append(fields, field)
@@ -419,7 +425,7 @@ func (o *Trx) readBufferForType(buffer []interface{}, objectType reflect.Type, o
 	vi := offset + 1
 	for i = 1; i < objectValue.NumField(); i++ {
 		of := objectValue.Field(i)
-		if of.Type().Kind() == reflect.Struct {
+		if IsEntity(of.Type()) {
 			mtos = append(mtos, of)
 		} else {
 			v := buffer[vi].(*interface{})
@@ -440,7 +446,7 @@ func (o *Trx) countFieldsDeep(objectType reflect.Type) int {
 	t := 0
 	for i := 0; i < objectType.NumField(); i++ {
 		f := objectType.Field(i)
-		if f.Type.Kind() == reflect.Struct {
+		if IsEntity(f.Type) {
 			t += o.countFieldsDeep(f.Type)
 		} else {
 			t++
@@ -466,7 +472,7 @@ func (o *Trx) buildStaticFieldBuffer(objectType reflect.Type) []interface{} {
 	buffer = append(buffer, &id)
 	for i := 1; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
-		if field.Type.Kind() != reflect.Struct {
+		if !IsEntity(field.Type) {
 			i := reflect.New(field.Type).Interface()
 			buffer = append(buffer, &i)
 		}
@@ -481,7 +487,7 @@ func (o *Trx) buildQuerySql(objectType reflect.Type) string {
 	mtos := make([]reflect.StructField, 0)
 	for i := 0; i < objectType.NumField(); i++ {
 		field := objectType.Field(i)
-		if field.Type.Kind() == reflect.Struct {
+		if IsEntity(field.Type) {
 			mtos = append(mtos, field)
 		} else {
 			fields = append(fields, field)
@@ -490,7 +496,8 @@ func (o *Trx) buildQuerySql(objectType reflect.Type) string {
 	sql := "select " + o.buildFieldsSelect(fields, "o")
 	s := o.buildMtoFieldsSelect(mtos, "o")
 	sql += s
-	sql += " from " + objectType.Name() + " o"
+	name := FqTableName(objectType)
+	sql += " from " + name + " o"
 	s = o.buildMtoJoins(mtos, "o")
 	sql += s
 	o.queryMap[objectType.Name()] = sql
@@ -506,7 +513,7 @@ func (o *Trx) buildMtoFieldsSelect(mtos []reflect.StructField, path string) stri
 		childPath := path + "_" + mto.Name
 		for j := 0; j < mtoType.NumField(); j++ {
 			field := mtoType.Field(j)
-			if field.Type.Kind() == reflect.Struct {
+			if IsEntity(field.Type) {
 				childMtos = append(childMtos, field)
 			} else {
 				sql += ", "
@@ -530,11 +537,12 @@ func (o *Trx) buildMtoJoins(mtos []reflect.StructField, path string) string {
 		} else {
 			sql += " "
 		}
-		sql += fmt.Sprintf("join %s %s on %s.id = %s.%s_id", mto.Name, childPath, childPath, path, mto.Name)
+		name := FqTableName(mto.Type)
+		sql += fmt.Sprintf("join %s %s on %s.id = %s.%s_id", name, childPath, childPath, path, mto.Name)
 		childMtos := make([]reflect.StructField, 0)
 		for j := 0; j < mtoType.NumField(); j++ {
 			field := mtoType.Field(j)
-			if field.Type.Kind() == reflect.Struct {
+			if IsEntity(field.Type) {
 				childMtos = append(childMtos, field)
 			}
 		}
