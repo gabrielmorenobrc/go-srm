@@ -8,6 +8,7 @@ import (
 	"log"
 	"github.com/gabrielmorenobrc/go-srm/lib"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
+	"fmt"
 )
 
 type Master1 struct {
@@ -100,7 +101,7 @@ func main() {
 		println(p1.Name)
 	}
 
-	m := Master1{Name: "Persisted"}
+	m := Master1{Name: fmt.Sprintf("Persisted")}
 	tx.Persist(&m)
 
 	r3 := tx.Query(Master1{}, "").([]Master1)
@@ -108,12 +109,15 @@ func main() {
 		log.Printf("master1: %d, %s", r3[i].Id, r3[i].Name)
 	}
 
-	rows := tx.QueryMulti([]interface{}{Detail{}, YetAnother{}}, srm.Loj("o2.detail_id = o1.id"), "")
+	rows := tx.QueryMulti([]interface{}{Master1{}, Detail{}, YetAnother{}},
+		srm.Loj("o2.master1_id = o1.id").Loj("o3.detail_id = o2.id"),
+		"order by o1.id")
 	for i := range rows {
 		row := rows[i]
-		d := row[0].(*Detail)
-		ya := row[1].(*YetAnother)
-		log.Printf("%s, %s", d.Name, ya)
+		m := row[0].(*Master1)
+		d := row[1].(*Detail)
+		ya := row[2].(*YetAnother)
+		log.Printf("%s, %s, %s", m.Name, d, ya)
 	}
 
 	tx.Commit()

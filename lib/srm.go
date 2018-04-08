@@ -255,7 +255,7 @@ func (o *Trx) QueryMulti(templates []interface{}, joins *Joins, conditions strin
 			} else {
 				objects[i] = object.Addr().Interface()
 			}
-			offset += n
+			offset = n
 		}
 		arr = append(arr, objects)
 	}
@@ -409,7 +409,8 @@ func (o *Trx) readBufferForType(buffer []interface{}, objectType reflect.Type, o
 	ppId := buffer[offset].(**int64)
 	pId := *ppId
 	if pId == nil {
-		return nil, objectType.NumField()
+		t := o.countFieldsDeep(objectType)
+		return nil, offset + t
 	}
 	objectValue := reflect.New(objectType).Elem()
 	idField := objectValue.Field(0)
@@ -434,6 +435,19 @@ func (o *Trx) readBufferForType(buffer []interface{}, objectType reflect.Type, o
 		mto.Set(*child.(*reflect.Value))
 	}
 	return &objectValue, vi
+}
+
+func (o *Trx) countFieldsDeep(objectType reflect.Type) int {
+	t := 0
+	for i := 0; i < objectType.NumField(); i++ {
+		f := objectType.Field(i)
+		if f.Type.Kind() == reflect.Struct {
+			t += o.countFieldsDeep(f.Type)
+		} else {
+			t++
+		}
+	}
+	return t
 }
 
 func (o *Trx) buildReadBufferForType(objectType reflect.Type) []interface{} {
