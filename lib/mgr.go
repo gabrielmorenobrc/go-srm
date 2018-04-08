@@ -67,17 +67,15 @@ func (o *Mgr) createTable(trx *Trx, template interface{}) {
 			buffer.WriteString(" int")
 		} else if f.Type == reflect.TypeOf(int64(0)) {
 			buffer.WriteString(" bigint")
-		} else if f.Type == reflect.TypeOf(0.0) {
+		} else if f.Type == reflect.TypeOf([]uint8{}) {
+			precision, _ := f.Tag.Lookup("precision")
+			buffer.WriteString(" numeric(")
+			buffer.WriteString(precision)
+			buffer.WriteString(")")
+		} else if f.Type == reflect.TypeOf(float32(0.0)) {
 			buffer.WriteString(" float")
 		} else if f.Type == reflect.TypeOf(float64(0.0)) {
-			precision, ok := f.Tag.Lookup("precision")
-			if ok {
-				buffer.WriteString(" numeric(")
-				buffer.WriteString(precision)
-				buffer.WriteString(")")
-			} else {
-				buffer.WriteString(" double")
-			}
+			buffer.WriteString(" double precision")
 		} else if f.Type == reflect.TypeOf("") {
 			len, ok := f.Tag.Lookup("len")
 			if !ok {

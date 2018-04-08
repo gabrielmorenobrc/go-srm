@@ -35,7 +35,6 @@ type YetAnother struct {
 	Date      time.Time `temporal:"date"`
 	Time      time.Time `temporal:"time"`
 	Timestamp time.Time `temporal:"timestamp"`
-	Money     float64   `precision:"18,2"`
 	Double    float64
 }
 
@@ -95,7 +94,7 @@ func main() {
 	tx.Persist(&m2)
 	d := Detail{Name: "Detail", Master1: m1, Master2: m2}
 	tx.Persist(&d)
-	ya := YetAnother{Name: "Y A", Detail: d}
+	ya := YetAnother{Name: "Y A", Detail: d, Time:time.Now(), Date:time.Now(),Double:0.0,Timestamp:time.Now()}
 	tx.Persist(&ya)
 
 	r1 := tx.Query(Detail{}, "where o_Master1.Id = $1 and o_Master2.Id = 2", 1).([]Detail)
