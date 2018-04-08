@@ -8,7 +8,6 @@ import (
 	"log"
 	"github.com/gabrielmorenobrc/go-srm/lib"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
-	"fmt"
 )
 
 type Master1 struct {
@@ -78,12 +77,24 @@ func main() {
 
 	sequences = tkt.NewSequences(config.DatabaseConfig)
 
-	initDB := InitDB{}
-	tkt.ExecuteTransactional(config.DatabaseConfig, &initDB)
+	//initDB := InitDB{}
+	//tkt.ExecuteTransactional(config.DatabaseConfig, &initDB)
 
 	mgr := srm.Mgr{DatabaseConfig:config.DatabaseConfig}
+	mgr.CreateTables([]interface{}{Master1{}, Master2{}, Detail{}, YetAnother{}})
+
+
 	tx := mgr.StartTransaction()
 	defer tx.RollbackOnPanic()
+
+	m1 := Master1{Name: "Master 1"}
+	tx.Persist(&m1)
+	m2 := Master2{Name: "Master 2"}
+	tx.Persist(&m2)
+	d := Detail{Name:"Detail", Master1:m1, Master2:m2}
+	tx.Persist(&d)
+	ya := YetAnother{Name:"Y A", Detail:d}
+	tx.Persist(&ya)
 
 	r1 := tx.Query(Detail{}, "where o_Master1.Id = $1 and o_Master2.Id = 2", 1).([]Detail)
 	for i := range r1 {
@@ -100,9 +111,6 @@ func main() {
 	if p1 != nil {
 		println(p1.Name)
 	}
-
-	m := Master1{Name: fmt.Sprintf("Persisted")}
-	tx.Persist(&m)
 
 	r3 := tx.Query(Master1{}, "").([]Master1)
 	for i := range r3 {

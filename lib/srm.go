@@ -8,7 +8,6 @@ import (
 	"strings"
 	"github.com/gabrielmorenobrc/go-tkt/lib"
 	"bytes"
-	"log"
 )
 
 type Trx struct {
@@ -96,7 +95,7 @@ func (o *Trx) Persist(entity interface{}) {
 	for i := 0; i < object.NumField(); i++ {
 		of := object.Field(i)
 		if of.Type().Kind() == reflect.Struct {
-			buffer[i] = of.Elem().FieldByName("Id").Interface()
+			buffer[i] = of.FieldByName("Id").Interface()
 		} else {
 			buffer[i] = of.Interface()
 		}
@@ -266,7 +265,7 @@ func (o *Trx) buildStmtForMultiple(key string, templates []interface{}, joins *J
 	o.mux.Lock()
 	defer o.mux.Unlock()
 	sql := o.buildSqlForMultiple(templates, joins, conditions)
-	log.Println(sql)
+	tkt.Logger("orm").Println(sql)
 	stmt, err := o.tx.Prepare(sql)
 	tkt.CheckErr(err)
 	o.stmtMap[key] = stmt
@@ -560,16 +559,3 @@ func (o *Trx) buildFieldsSelect(fields []reflect.StructField, path string) strin
 	return s
 }
 
-type Mgr struct {
-	DatabaseConfig tkt.DatabaseConfig
-}
-
-func (o *Mgr) StartTransaction() *Trx {
-	transaction := Trx{}
-	db := tkt.OpenDB(o.DatabaseConfig)
-	tx, err := db.Begin()
-	tkt.CheckErr(err)
-	sequences := tkt.NewSequences(o.DatabaseConfig)
-	transaction.Init(db, tx, sequences)
-	return &transaction
-}
