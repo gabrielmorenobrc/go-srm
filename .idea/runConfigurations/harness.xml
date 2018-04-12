@@ -1,12 +1,12 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="harness" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="go-srm" />
-    <working_directory value="C:\GoWorkspace\src\github.com\gabrielmorenobrc\go-srm\harness" />
+    <working_directory value="$PROJECT_DIR$/harness" />
     <go_parameters value="-i" />
-    <kind value="FILE" />
-    <filePath value="C:\GoWorkspace\src\github.com\gabrielmorenobrc\go-srm\harness\main.go" />
+    <kind value="DIRECTORY" />
+    <filePath value="$PROJECT_DIR$" />
     <package value="github.com/gabrielmorenobrc/go-srm" />
-    <directory value="$PROJECT_DIR$" />
+    <directory value="$PROJECT_DIR$/harness" />
     <method />
   </configuration>
 </component>
